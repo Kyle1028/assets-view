@@ -27,9 +27,9 @@ iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; backgr
 <iframe id="view" title="資產總覽"></iframe>
 <div id="msg">載入中…</div>
 <script>
-// 空殼頁：不含任何資料。密鑰放在網址 # 後面（不會送到 GitHub），用它向 Apps Script 讀取總覽頁。
+// 空殼頁：不含任何資料。data.json 是加密過的總覽頁（AES-256-GCM），
+// 密鑰放在網址 # 後面（不會送到 GitHub），只在這支手機上解密。
 (() => {
-  const API = 'https://script.google.com/macros/s/AKfycbyI6Egh0Y8LkJLrnwrV4XF8qIiF4jONnPakhgqZoNoWZlYgFYgT_5fxqDf3gwDUv5al1g/exec';
   const view = document.getElementById('view');
   const msg = (t) => { document.getElementById('msg').textContent = t; };
   const store = {
@@ -47,24 +47,32 @@ iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; backgr
   const cached = store.get('page');
   if (cached) { show(cached); msg('更新中…'); }
 
-  let pending = false;
-  window.__render = (d) => {
-    pending = false;
-    if (!d || !d.ok) { msg('密鑰錯誤，請用完整網址重新開啟'); return; }
-    if (!d.html) { msg('尚未收到資料'); return; }
-    store.set('page', d.html);
-    show(d.html);
-    msg('');
-  };
+  const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  let cryptoKey = null;
+  async function decrypt(d) {
+    cryptoKey ??= await crypto.subtle.importKey('raw', await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key)), 'AES-GCM', false, ['decrypt']);
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(d.iv) }, cryptoKey, b64(d.data));
+    return new TextDecoder().decode(plain);
+  }
 
-  function load() {
+  let pending = false;
+  async function load() {
     if (pending) return;
     pending = true;
-    const s = document.createElement('script');
-    s.src = API + '?cb=__render&k=' + encodeURIComponent(key) + '&t=' + Date.now();
-    s.onerror = () => { pending = false; msg(shown ? '連線失敗，顯示上次的資料' : '連線失敗'); };
-    s.onload = () => s.remove();
-    document.head.appendChild(s);
+    try {
+      const res = await fetch('data.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const d = await res.json();
+      let html;
+      try { html = await decrypt(d); } catch { msg('密鑰錯誤，請用完整網址重新開啟'); return; }
+      store.set('page', html);
+      show(html);
+      msg('');
+    } catch {
+      msg(shown ? '連線失敗，顯示上次的資料' : '連線失敗，請稍後再試');
+    } finally {
+      pending = false;
+    }
   }
 
   load();
