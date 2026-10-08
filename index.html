@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#1c5cab">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="資產總覽">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.png">
+<title>資產總覽</title>
+<style>
+:root { color-scheme: light; --bg: #f4f3ef; --text: #52514e; }
+@media (prefers-color-scheme: dark) { :root { color-scheme: dark; --bg: #0f0f0e; --text: #c3c2b7; } }
+html, body { margin: 0; height: 100%; background: var(--bg); }
+iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: var(--bg); }
+#msg { position: fixed; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+  font: 13px/1.4 system-ui, -apple-system, "PingFang TC", "Noto Sans TC", sans-serif; color: var(--text);
+  background: color-mix(in srgb, var(--bg) 85%, transparent); padding: 6px 12px; border-radius: 999px; z-index: 1; }
+#msg:empty { display: none; }
+</style>
+</head>
+<body>
+<iframe id="view" title="資產總覽"></iframe>
+<div id="msg">載入中…</div>
+<script>
+// 空殼頁：不含任何資料。密鑰放在網址 # 後面（不會送到 GitHub），用它向 Apps Script 讀取總覽頁。
+(() => {
+  const API = 'https://script.google.com/macros/s/AKfycbyI6Egh0Y8LkJLrnwrV4XF8qIiF4jONnPakhgqZoNoWZlYgFYgT_5fxqDf3gwDUv5al1g/exec';
+  const view = document.getElementById('view');
+  const msg = (t) => { document.getElementById('msg').textContent = t; };
+  const store = {
+    get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+    set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+  };
+
+  let key = new URLSearchParams(location.hash.slice(1)).get('k');
+  if (key) store.set('k', key);
+  else key = store.get('k');
+  if (!key) { msg('網址缺少密鑰'); return; }
+
+  let shown = null;
+  const show = (html) => { if (html && html !== shown) { shown = html; view.srcdoc = html; } };
+  const cached = store.get('page');
+  if (cached) { show(cached); msg('更新中…'); }
+
+  let pending = false;
+  window.__render = (d) => {
+    pending = false;
+    if (!d || !d.ok) { msg('密鑰錯誤，請用完整網址重新開啟'); return; }
+    if (!d.html) { msg('尚未收到資料'); return; }
+    store.set('page', d.html);
+    show(d.html);
+    msg('');
+  };
+
+  function load() {
+    if (pending) return;
+    pending = true;
+    const s = document.createElement('script');
+    s.src = API + '?cb=__render&k=' + encodeURIComponent(key) + '&t=' + Date.now();
+    s.onerror = () => { pending = false; msg(shown ? '連線失敗，顯示上次的資料' : '連線失敗'); };
+    s.onload = () => s.remove();
+    document.head.appendChild(s);
+  }
+
+  load();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); });
+})();
+</script>
+</body>
+</html>
